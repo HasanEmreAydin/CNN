@@ -1,0 +1,156 @@
+import requests
+
+filename = 'gems2.zip' 
+
+
+token = '48eb51ebd68f3d2a99b72ec339b32756402007c5'
+
+url = 'https://gitarero.ecam.fr/api/v1/repos/etienne.vienot/machine_learning/raw/' + filename +'?token=' + token
+
+r = requests.get(url)
+
+open(filename , 'wb').write(r.content)
+!unzip '/content/gems2.zip' -d "/content/."
+import os
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, Activation
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import EarlyStopping
+from tqdm import tqdm
+
+# 📌 Dataset kök dizini (Senin veri yapına uygun hale getirildi)
+datasetRoot = '/content/gems2/'
+
+train_dir = os.path.join(datasetRoot, 'train')
+test_dir = os.path.join(datasetRoot, 'test')
+
+classes = ['Ruby', 'Turquoise', 'Emerald', 'Fake_Ruby', 'Fake_Turquoise', 'Fake_Emerald']
+nbClasses = len(classes)
+npix = 150  # Görseller 150x150 boyutuna ayarlanacak
+
+# 🔹 Veri artırma (Data Augmentation)
+image_gen = ImageDataGenerator(
+    rotation_range=30,
+    width_shift_range=0.1,
+    height_shift_range=0.1,
+    rescale=1/255,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest'
+)
+
+# 📌 Eğitim ve test verisini ImageDataGenerator ile yükle
+batch_size = 32
+
+train_image_gen = image_gen.flow_from_directory(
+    train_dir,
+    target_size=(npix, npix),
+    batch_size=batch_size,
+    class_mode='categorical'
+)
+
+test_image_gen = image_gen.flow_from_directory(
+    test_dir,
+    target_size=(npix, npix),
+    batch_size=batch_size,
+    class_mode='categorical'
+)
+
+# 🔹 CNN Modeli Oluşturma
+model = Sequential()
+
+model.add(Conv2D(32, (3,3), activation='relu', input_shape=(npix, npix, 3)))
+model.add(MaxPooling2D(pool_size=(2,2)))
+
+model.add(Conv2D(64, (3,3), activation='relu'))
+model.add(MaxPooling2D(pool_size=(2,2)))
+
+model.add(Conv2D(128, (3,3), activation='relu'))
+model.add(MaxPooling2D(pool_size=(2,2)))
+
+model.add(Flatten())
+
+model.add(Dense(256, activation='relu'))
+model.add(Dropout(0.5))
+
+model.add(Dense(nbClasses, activation='softmax'))
+
+model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+model.summary()
+
+# 📌 Modeli Eğitme
+early_stop = EarlyStopping(monitor='val_loss', patience=5)
+
+results = model.fit(
+    train_image_gen,
+    epochs=5,
+    validation_data=test_image_gen,
+    callbacks=[early_stop]
+)
+
+# 📌 Modeli Kaydetme
+model.save('gems_classifier.h5')
+
+# 📌 Bir Görselin Tahmin Edilmesi
+def predict_gem(image_path):
+    gem_img = image.load_img(image_path, target_size=(npix, npix))
+    gem_img = image.img_to_array(gem_img)
+    gem_img = np.expand_dims(gem_img, axis=0) / 255.0
+    prediction = model.predict(gem_img)
+    class_idx = np.argmax(prediction)
+    return classes[class_idx], prediction[0][class_idx]
+
+# 📌 Örnek tahmin
+sample_image = '/content/gems2/test/Ruby/sample.jpg'  # Test setinden bir görsel kullan
+if os.path.exists(sample_image):
+    label, prob = predict_gem(sample_image)
+    print(f'Görsel {label} olarak tahmin edildi. Güven: {prob:.2f}')
+else:
+    print("Örnek dosya bulunamadı. Lütfen bir test görseli seç.")
+import os
+import numpy as np
+import cv2
+import tensorflow as tf
+from tensorflow.keras.preprocessing import image
+import matplotlib.pyplot as plt
+
+# 📌 Modeli yükle (compile=False ekledik)
+model = tf.keras.models.load_model('/content/gems_classifier.h5', compile=False)
+
+# 📌 Sınıf isimleri
+classes = ['Ruby', 'Turquoise', 'Emerald', 'Fake_Ruby', 'Fake_Turquoise', 'Fake_Emerald']
+npix = 150  # Modelin beklediği giriş boyutu
+
+def predict_gem(image_path):
+    """Fotoğrafı modele uygun hale getir ve tahmin yap."""
+    gem_img = image.load_img(image_path, target_size=(npix, npix))
+    gem_img = image.img_to_array(gem_img)
+    gem_img = np.expand_dims(gem_img, axis=0) / 255.0  # Normalizasyon
+    prediction = model.predict(gem_img)
+    class_idx = np.argmax(prediction)
+    return classes[class_idx], prediction[0][class_idx]
+
+# 📌 Fotoğraf yolunu manuel girdiğimiz versiyon
+image_path = input("Fotoğrafın tam yolunu girin: ")
+
+if os.path.exists(image_path):
+    label, prob = predict_gem(image_path)
+    
+    # 📌 Sonucu görselleştir
+    img = cv2.imread(image_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    plt.imshow(img)
+    plt.title(f'Tahmin: {label} \n Güven: {prob:.2f}')
+    plt.axis('off')
+    plt.show()
+else:
+    print("Geçersiz dosya yolu! Lütfen tekrar deneyin.")
+
